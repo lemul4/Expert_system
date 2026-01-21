@@ -1,35 +1,53 @@
-"""
-Веб-приложение экспертной системы для профориентации
-"""
-
 from flask import Flask, render_template, request, jsonify
 import json
+import os
 from inference_engine import InferenceEngine
 
 app = Flask(__name__)
 
-# Загрузка базы знаний
+KB_FILE = 'knowledge_base.json'
+
 def load_knowledge_base():
-    with open('knowledge_base.json', 'r', encoding='utf-8') as f:
+    if not os.path.exists(KB_FILE):
+        return {"questions": [], "professions": [], "rules": []}
+    with open(KB_FILE, 'r', encoding='utf-8') as f:
         return json.load(f)
 
-# Сохранение базы знаний
 def save_knowledge_base(kb):
-    with open('knowledge_base.json', 'w', encoding='utf-8') as f:
+    with open(KB_FILE, 'w', encoding='utf-8') as f:
         json.dump(kb, f, ensure_ascii=False, indent=2)
 
+# Глобальная инициализация
 knowledge_base = load_knowledge_base()
 engine = InferenceEngine(knowledge_base)
 
 @app.route('/')
 def index():
-    """Главная страница с тестом"""
     return render_template('index.html')
 
 @app.route('/api/questions', methods=['GET'])
 def get_questions():
-    """Получить все вопросы"""
-    return jsonify(knowledge_base['questions'])
+    return jsonify(knowledge_base.get('questions', []))
+
+@app.route('/api/analyze', methods=['POST'])
+def analyze():
+    data = request.json
+    answers = data.get('answers', {})
+    
+    # Преобразуем строковые ключи в ID вопросов и значения в int
+    numeric_answers = {}
+    for q_id, answer_idx in answers.items():
+        try:
+            numeric_answers[q_id] = int(answer_idx)
+        except ValueError:
+            continue
+    
+    recommendations = engine.get_recommendations(numeric_answers, top_n=5)
+    
+    return jsonify({
+        'success': True,
+        'recommendations': recommendations
+    })
 
 @app.route('/api/professions', methods=['GET'])
 def get_professions():
@@ -41,24 +59,6 @@ def get_rules():
     """Получить все правила"""
     return jsonify(knowledge_base['rules'])
 
-@app.route('/api/analyze', methods=['POST'])
-def analyze():
-    """Анализ ответов и получение рекомендаций"""
-    data = request.json
-    answers = data.get('answers', {})
-    
-    # Преобразуем ответы в числовой формат (0-3)
-    numeric_answers = {}
-    for q_id, answer_idx in answers.items():
-        numeric_answers[q_id] = int(answer_idx)
-    
-    # Получаем рекомендации
-    recommendations = engine.get_recommendations(numeric_answers, top_n=5)
-    
-    return jsonify({
-        'success': True,
-        'recommendations': recommendations
-    })
 
 @app.route('/api/knowledge-base', methods=['GET'])
 def get_knowledge_base():
